@@ -6,4 +6,6 @@ export type { AxionveraNetwork, NetworkConfig } from "./utils/networkConfig";
 export { getDefaultRpcUrl, getNetworkPassphrase, resolveNetworkConfig } from "./utils/networkConfig";
 export type { BuildContractCallParams, ContractCallArg } from "./utils/transactionBuilder";
 export { buildContractCallOperation, buildContractCallTransaction, toScVal } from "./utils/transactionBuilder";
+export type { RetryConfig } from "./utils/httpInterceptor";
+export { createHttpClientWithRetry, retry } from "./utils/httpInterceptor";
 //# sourceMappingURL=index.d.ts.map

@@ -3,12 +3,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.StellarClient = void 0;
 const stellar_sdk_1 = require("@stellar/stellar-sdk");
 const networkConfig_1 = require("../utils/networkConfig");
+const httpInterceptor_1 = require("../utils/httpInterceptor");
 class StellarClient {
     constructor(options) {
         const config = (0, networkConfig_1.resolveNetworkConfig)(options);
         this.network = config.network;
         this.rpcUrl = config.rpcUrl;
         this.networkPassphrase = config.networkPassphrase;
+        this.retryConfig = options?.retryConfig ?? {};
+        this.httpClient = (0, httpInterceptor_1.createHttpClientWithRetry)(this.retryConfig);
         if (options?.rpcClient) {
             this.rpc = options.rpcClient;
         }
@@ -18,16 +21,16 @@ class StellarClient {
         }
     }
     async getHealth() {
-        return this.rpc.getHealth();
+        return (0, httpInterceptor_1.retry)(() => this.rpc.getHealth(), this.retryConfig);
     }
     async getNetwork() {
-        return this.rpc.getNetwork();
+        return (0, httpInterceptor_1.retry)(() => this.rpc.getNetwork(), this.retryConfig);
     }
     async getLatestLedger() {
-        return this.rpc.getLatestLedger();
+        return (0, httpInterceptor_1.retry)(() => this.rpc.getLatestLedger(), this.retryConfig);
     }
     async getAccount(publicKey) {
-        return this.rpc.getAccount(publicKey);
+        return (0, httpInterceptor_1.retry)(() => this.rpc.getAccount(publicKey), this.retryConfig);
     }
     async simulateTransaction(tx) {
         return this.rpc.simulateTransaction(tx);
@@ -42,7 +45,7 @@ class StellarClient {
         return { hash, status, raw: result };
     }
     async getTransaction(hash) {
-        return this.rpc.getTransaction(hash);
+        return (0, httpInterceptor_1.retry)(() => this.rpc.getTransaction(hash), this.retryConfig);
     }
     async pollTransaction(hash, params) {
         const timeoutMs = params?.timeoutMs ?? 30000;

@@ -9,12 +9,14 @@ import {
 } from "@stellar/stellar-sdk";
 
 import { AxionveraNetwork, resolveNetworkConfig } from "../utils/networkConfig";
+import { RetryConfig, createHttpClientWithRetry, retry } from "../utils/httpInterceptor";
 
 export type StellarClientOptions = {
   network?: AxionveraNetwork;
   rpcUrl?: string;
   networkPassphrase?: string;
   rpcClient?: rpc.Server;
+  retryConfig?: Partial<RetryConfig>;
 };
 
 export type TransactionSendResult = {
@@ -28,12 +30,16 @@ export class StellarClient {
   readonly rpcUrl: string;
   readonly networkPassphrase: string;
   readonly rpc: rpc.Server;
+  readonly httpClient;
+  readonly retryConfig: Partial<RetryConfig>;
 
   constructor(options?: StellarClientOptions) {
     const config = resolveNetworkConfig(options);
     this.network = config.network;
     this.rpcUrl = config.rpcUrl;
     this.networkPassphrase = config.networkPassphrase;
+    this.retryConfig = options?.retryConfig ?? {};
+    this.httpClient = createHttpClientWithRetry(this.retryConfig);
 
     if (options?.rpcClient) {
       this.rpc = options.rpcClient;
@@ -44,19 +50,19 @@ export class StellarClient {
   }
 
   async getHealth(): Promise<unknown> {
-    return this.rpc.getHealth();
+    return retry(() => this.rpc.getHealth(), this.retryConfig);
   }
 
   async getNetwork(): Promise<unknown> {
-    return this.rpc.getNetwork();
+    return retry(() => this.rpc.getNetwork(), this.retryConfig);
   }
 
   async getLatestLedger(): Promise<unknown> {
-    return this.rpc.getLatestLedger();
+    return retry(() => this.rpc.getLatestLedger(), this.retryConfig);
   }
 
   async getAccount(publicKey: string): Promise<Account> {
-    return this.rpc.getAccount(publicKey);
+    return retry(() => this.rpc.getAccount(publicKey), this.retryConfig);
   }
 
   async simulateTransaction(
@@ -77,7 +83,7 @@ export class StellarClient {
   }
 
   async getTransaction(hash: string): Promise<unknown> {
-    return this.rpc.getTransaction(hash);
+    return retry(() => this.rpc.getTransaction(hash), this.retryConfig);
   }
 
   async pollTransaction(

@@ -1,0 +1,113 @@
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
+
+export type RetryConfig = {
+  enabled: boolean;
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+  retryableMethods: string[];
+  retryableStatusCodes: number[];
+};
+
+export const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  enabled: true,
+  maxRetries: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 8000,
+  retryableMethods: ['GET', 'PUT'],
+  retryableStatusCodes: [429, 500, 502, 503, 504]
+};
+
+function calculateDelay(attemptNumber: number, baseDelayMs: number, maxDelayMs: number): number {
+  const delay = baseDelayMs * Math.pow(2, attemptNumber - 1);
+  return Math.min(delay, maxDelayMs);
+}
+
+function isRetryableRequest(config: AxiosRequestConfig, retryConfig: RetryConfig): boolean {
+  const method = config.method?.toUpperCase();
+  return method ? retryConfig.retryableMethods.includes(method) : false;
+}
+
+function isRetryableError(error: AxiosError, retryConfig: RetryConfig): boolean {
+  if (!error.response) {
+    return false;
+  }
+  return retryConfig.retryableStatusCodes.includes(error.response.status);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export function createHttpClientWithRetry(
+  retryConfig: Partial<RetryConfig> = {}
+): AxiosInstance {
+  const config = { ...DEFAULT_RETRY_CONFIG, ...retryConfig };
+
+  const client = axios.create({
+    timeout: 30000,
+  });
+
+  if (!config.enabled) {
+    return client;
+  }
+
+  client.interceptors.response.use(
+    (response: AxiosResponse) => response,
+    async (error: AxiosError) => {
+      const originalRequest = error.config as AxiosRequestConfig & { _retryCount?: number };
+
+      if (!originalRequest || !isRetryableRequest(originalRequest, config) || !isRetryableError(error, config)) {
+        return Promise.reject(error);
+      }
+
+      originalRequest._retryCount = originalRequest._retryCount || 0;
+
+      if (originalRequest._retryCount >= config.maxRetries) {
+        return Promise.reject(error);
+      }
+
+      originalRequest._retryCount++;
+
+      const delayMs = calculateDelay(originalRequest._retryCount, config.baseDelayMs, config.maxDelayMs);
+      await delay(delayMs);
+
+      return client(originalRequest);
+    }
+  );
+
+  return client;
+}
+
+export async function retry<T>(
+  fn: () => Promise<T>,
+  retryConfig: Partial<RetryConfig> = {}
+): Promise<T> {
+  const config = { ...DEFAULT_RETRY_CONFIG, ...retryConfig };
+
+  if (!config.enabled) {
+    return fn();
+  }
+
+  let lastError: any;
+
+  for (let attempt = 1; attempt <= config.maxRetries + 1; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+
+      // Check if this is a retryable error
+      const isRetryable = error.response && config.retryableStatusCodes.includes(error.response.status);
+
+      if (!isRetryable || attempt > config.maxRetries) {
+        throw error;
+      }
+
+      const delayMs = calculateDelay(attempt, config.baseDelayMs, config.maxDelayMs);
+      await delay(delayMs);
+    }
+  }
+
+  throw lastError;
+}

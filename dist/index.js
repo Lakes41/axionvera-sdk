@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.toScVal = exports.buildContractCallTransaction = exports.buildContractCallOperation = exports.resolveNetworkConfig = exports.getNetworkPassphrase = exports.getDefaultRpcUrl = exports.LocalKeypairWalletConnector = exports.VaultContract = exports.StellarClient = void 0;
+exports.retry = exports.createHttpClientWithRetry = exports.toScVal = exports.buildContractCallTransaction = exports.buildContractCallOperation = exports.resolveNetworkConfig = exports.getNetworkPassphrase = exports.getDefaultRpcUrl = exports.LocalKeypairWalletConnector = exports.VaultContract = exports.StellarClient = void 0;
 var stellarClient_1 = require("./client/stellarClient");
 Object.defineProperty(exports, "StellarClient", { enumerable: true, get: function () { return stellarClient_1.StellarClient; } });
 var vault_1 = require("./contracts/vault");
@@ -15,3 +15,6 @@ var transactionBuilder_1 = require("./utils/transactionBuilder");
 Object.defineProperty(exports, "buildContractCallOperation", { enumerable: true, get: function () { return transactionBuilder_1.buildContractCallOperation; } });
 Object.defineProperty(exports, "buildContractCallTransaction", { enumerable: true, get: function () { return transactionBuilder_1.buildContractCallTransaction; } });
 Object.defineProperty(exports, "toScVal", { enumerable: true, get: function () { return transactionBuilder_1.toScVal; } });
+var httpInterceptor_1 = require("./utils/httpInterceptor");
+Object.defineProperty(exports, "createHttpClientWithRetry", { enumerable: true, get: function () { return httpInterceptor_1.createHttpClientWithRetry; } });
+Object.defineProperty(exports, "retry", { enumerable: true, get: function () { return httpInterceptor_1.retry; } });

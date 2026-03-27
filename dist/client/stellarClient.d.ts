@@ -1,10 +1,12 @@
 import { Account, FeeBumpTransaction, Keypair, rpc, Transaction } from "@stellar/stellar-sdk";
 import { AxionveraNetwork } from "../utils/networkConfig";
+import { RetryConfig } from "../utils/httpInterceptor";
 export type StellarClientOptions = {
     network?: AxionveraNetwork;
     rpcUrl?: string;
     networkPassphrase?: string;
     rpcClient?: rpc.Server;
+    retryConfig?: Partial<RetryConfig>;
 };
 export type TransactionSendResult = {
     hash: string;
@@ -16,6 +18,8 @@ export declare class StellarClient {
     readonly rpcUrl: string;
     readonly networkPassphrase: string;
     readonly rpc: rpc.Server;
+    readonly httpClient: import("axios").AxiosInstance;
+    readonly retryConfig: Partial<RetryConfig>;
     constructor(options?: StellarClientOptions);
     getHealth(): Promise<unknown>;
     getNetwork(): Promise<unknown>;
