@@ -1,6 +1,7 @@
 import { Account, Keypair, StrKey, Transaction } from "@stellar/stellar-sdk";
 
 import { VaultContract } from "../src";
+import { ValidationError } from "../src/errors/axionveraError";
 
 describe("VaultContract", () => {
   test("builds, simulates, prepares, signs, and submits a deposit transaction", async () => {
@@ -61,5 +62,20 @@ describe("VaultContract", () => {
     await expect(vault.getBalance({ account: publicKey })).resolves.toBeNull();
     expect(client.getAccount).toHaveBeenCalledWith(publicKey);
     expect(client.simulateTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  test("throws ValidationError when account and wallet are missing", async () => {
+    const client = {
+      networkPassphrase: "Test Network ; February 2017",
+      getAccount: jest.fn(),
+      simulateTransaction: jest.fn()
+    };
+
+    const vault = new VaultContract({
+      client: client as any,
+      contractId: StrKey.encodeContract(Buffer.alloc(32))
+    });
+
+    await expect(vault.getBalance({})).rejects.toBeInstanceOf(ValidationError);
   });
 });
