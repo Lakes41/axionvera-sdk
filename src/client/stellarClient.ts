@@ -2,13 +2,16 @@ import {
   Account,
   FeeBumpTransaction,
   Keypair,
-  Networks,
   rpc,
   Transaction,
   TransactionBuilder
 } from "@stellar/stellar-sdk";
 
-import { AxionveraNetwork, resolveNetworkConfig } from "../utils/networkConfig";
+import {
+  AxionveraNetwork,
+  getNetworkPassphrase,
+  resolveNetworkConfig
+} from "../utils/networkConfig";
 import { ConcurrencyConfig, DEFAULT_CONCURRENCY_CONFIG, createConcurrencyControlledClient } from "../utils/concurrencyQueue";
 import { RetryConfig, createHttpClientWithRetry, retry } from "../utils/httpInterceptor";
 
@@ -228,12 +231,7 @@ export class StellarClient {
    * @returns The corresponding network passphrase
    */
   static getDefaultNetworkPassphrase(network: AxionveraNetwork): string {
-    switch (network) {
-      case "testnet":
-        return Networks.TESTNET;
-      case "mainnet":
-        return Networks.PUBLIC;
-    }
+    return getNetworkPassphrase(network);
   }
 
   /**
