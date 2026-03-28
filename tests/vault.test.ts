@@ -64,7 +64,28 @@ describe("VaultContract", () => {
     expect(client.simulateTransaction).toHaveBeenCalledTimes(1);
   });
 
-  test("throws ValidationError when account and wallet are missing", async () => {
+  test("throws when wallet is missing for deposit", async () => {
+    const keypair = Keypair.random();
+    const publicKey = keypair.publicKey();
+    const account = new Account(publicKey, "1");
+
+    const client = {
+      networkPassphrase: "Test Network ; February 2017",
+      getAccount: jest.fn().mockResolvedValue(account),
+      simulateTransaction: jest.fn().mockResolvedValue({ result: { retval: null } })
+    };
+
+    const vault = new VaultContract({
+      client: client as any,
+      contractId: "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef"
+    });
+
+    await expect(vault.deposit({ amount: 1000n })).rejects.toThrow(
+      /wallet connector is required for signing transactions/
+    );
+  });
+
+  test("throws when no account and no wallet on getBalance", async () => {
     const client = {
       networkPassphrase: "Test Network ; February 2017",
       getAccount: jest.fn(),
@@ -73,9 +94,30 @@ describe("VaultContract", () => {
 
     const vault = new VaultContract({
       client: client as any,
-      contractId: StrKey.encodeContract(Buffer.alloc(32))
+      contractId: "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef"
     });
 
-    await expect(vault.getBalance({})).rejects.toBeInstanceOf(ValidationError);
+    await expect(vault.getBalance({} as any)).rejects.toThrow(
+      /account is required when no wallet connector is provided/
+    );
+  });
+
+  test("simulated contract call failure propagates in getBalance", async () => {
+    const keypair = Keypair.random();
+    const publicKey = keypair.publicKey();
+    const account = new Account(publicKey, "1");
+
+    const client = {
+      networkPassphrase: "Test Network ; February 2017",
+      getAccount: jest.fn().mockResolvedValue(account),
+      simulateTransaction: jest.fn().mockResolvedValue({ error: "Sim failed" })
+    };
+
+    const vault = new VaultContract({
+      client: client as any,
+      contractId: "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef"
+    });
+
+    await expect(vault.getBalance({ account: publicKey })).rejects.toThrow(/Simulation failed/);
   });
 });
