@@ -17,3 +17,15 @@ jobs:
           node-version: 20
       # Fails the build if "high" or "critical" vulnerabilities are found
       - run: npm audit --audit-level=high
+
+  test-and-coverage:
+    name: Unit Tests & Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - run: npm test
