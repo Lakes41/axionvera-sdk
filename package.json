@@ -45,7 +45,8 @@
     "test": "jest",
     "docs": "typedoc",
     "start": "npm run build",
-    "size": "size-limit"
+    "size": "size-limit",
+    "release:dry-run": "semantic-release --dry-run"
   },
   "sideEffects": false,
   "dependencies": {
@@ -53,6 +54,9 @@
     "axios": "^1.7.9"
   },
   "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "semantic-release": "^23.0.0",
     "@size-limit/preset-small-lib": "^11.1.6",
     "size-limit": "^11.1.6",
     "@types/jest": "^29.5.12",
