@@ -2,15 +2,22 @@ import {
   Account,
   FeeBumpTransaction,
   Keypair,
-  Networks,
   rpc,
   Transaction,
   TransactionBuilder
 } from "@stellar/stellar-sdk";
 
-import { AxionveraNetwork, resolveNetworkConfig } from "../utils/networkConfig";
+import {
+  AxionveraNetwork,
+  getNetworkPassphrase,
+  resolveNetworkConfig
+} from "../utils/networkConfig";
 import { ConcurrencyConfig, DEFAULT_CONCURRENCY_CONFIG, createConcurrencyControlledClient } from "../utils/concurrencyQueue";
 import { RetryConfig, createHttpClientWithRetry, retry } from "../utils/httpInterceptor";
+import { NetworkError, toAxionveraError } from "../errors/axionveraError";
+import { LogLevel, Logger } from "../utils/logger";
+import { WebSocketManager, EventFilter, SorobanEvent, WebSocketConfig } from "./websocket";
+import { CloudWatchConfig } from "../utils/logging/cloudwatch";
 
 export type StellarClientOptions = {
   network?: AxionveraNetwork;
@@ -19,6 +26,9 @@ export type StellarClientOptions = {
   rpcClient?: rpc.Server;
   concurrencyConfig?: Partial<ConcurrencyConfig>;
   retryConfig?: Partial<RetryConfig>;
+  logLevel?: LogLevel;
+  webSocketConfig?: WebSocketConfig;
+  cloudWatchConfig?: CloudWatchConfig;
 };
 
 export type TransactionSendResult = {
@@ -55,9 +65,13 @@ export class StellarClient {
   /** The effective retry configuration after merging with defaults. */
   readonly retryConfig: Partial<RetryConfig>;
   /** The effective concurrency configuration after merging with defaults. */
-  readonly concurrencyConfig: ConcurrencyConfig;
-  /** Whether concurrency control is enabled. */
-  readonly concurrencyEnabled: boolean;
+  private readonly concurrencyConfig: ConcurrencyConfig;
+  /** Indicates whether concurrency control was explicitly enabled. */
+  private readonly concurrencyEnabled: boolean;
+  /** The internal logger instance. */
+  private readonly logger: Logger;
+  /** WebSocket manager for real-time events. */
+  private webSocketManager: WebSocketManager | null = null;
 
   /**
    * Creates a new StellarClient instance.
@@ -75,6 +89,9 @@ export class StellarClient {
     this.concurrencyEnabled = !!options?.concurrencyConfig;
     this.retryConfig = options?.retryConfig ?? {};
     this.httpClient = createHttpClientWithRetry(this.retryConfig);
+    this.logger = new Logger(options?.logLevel ?? 'none', options?.cloudWatchConfig);
+
+    this.logger.info(`Initializing StellarClient for ${this.network} at ${this.rpcUrl}`);
 
     // Initialize WebSocket manager if configuration is provided
     if (options?.webSocketConfig) {
@@ -109,7 +126,11 @@ export class StellarClient {
    * @returns The health check response
    */
   async getHealth(): Promise<unknown> {
-    return retry(() => this.rpc.getHealth(), this.retryConfig);
+    this.logger.debug("Fetching network health");
+    return this.executeWithErrorHandling(
+      () => retry(() => this.rpc.getHealth(), this.retryConfig),
+      "Failed to fetch network health"
+    );
   }
 
   /**
@@ -118,7 +139,11 @@ export class StellarClient {
    * @returns The network configuration
    */
   async getNetwork(): Promise<unknown> {
-    return retry(() => this.rpc.getNetwork(), this.retryConfig);
+    this.logger.debug("Fetching network configuration");
+    return this.executeWithErrorHandling(
+      () => retry(() => this.rpc.getNetwork(), this.retryConfig),
+      "Failed to fetch network configuration"
+    );
   }
 
   /**
@@ -127,7 +152,11 @@ export class StellarClient {
    * @returns The latest ledger info
    */
   async getLatestLedger(): Promise<unknown> {
-    return retry(() => this.rpc.getLatestLedger(), this.retryConfig);
+    this.logger.debug("Fetching latest ledger");
+    return this.executeWithErrorHandling(
+      () => retry(() => this.rpc.getLatestLedger(), this.retryConfig),
+      "Failed to fetch latest ledger"
+    );
   }
 
   /**
@@ -137,7 +166,11 @@ export class StellarClient {
    * @returns The account information
    */
   async getAccount(publicKey: string): Promise<Account> {
-    return retry(() => this.rpc.getAccount(publicKey), this.retryConfig);
+    this.logger.debug(`Fetching account ${publicKey}`);
+    return this.executeWithErrorHandling(
+      () => retry(() => this.rpc.getAccount(publicKey), this.retryConfig),
+      `Failed to fetch account ${publicKey}`
+    );
   }
 
   /**
@@ -149,7 +182,11 @@ export class StellarClient {
   async simulateTransaction(
     tx: Transaction | FeeBumpTransaction
   ): Promise<rpc.Api.SimulateTransactionResponse> {
-    return this.rpc.simulateTransaction(tx);
+    this.logger.debug("Simulating transaction");
+    return this.executeWithErrorHandling(
+      () => this.rpc.simulateTransaction(tx),
+      "Failed to simulate transaction"
+    );
   }
 
   /**
@@ -159,7 +196,11 @@ export class StellarClient {
    * @returns The prepared transaction
    */
   async prepareTransaction(tx: Transaction | FeeBumpTransaction): Promise<Transaction> {
-    return this.rpc.prepareTransaction(tx);
+    this.logger.debug("Preparing transaction");
+    return this.executeWithErrorHandling(
+      () => this.rpc.prepareTransaction(tx),
+      "Failed to prepare transaction"
+    );
   }
 
   /**
@@ -167,36 +208,16 @@ export class StellarClient {
    * @param tx - The signed transaction to submit
    * @returns The submission result containing hash and status
    */
- async sendTransaction(tx: Transaction | FeeBumpTransaction): Promise<TransactionSendResult> {
-  let finalTx: Transaction | FeeBumpTransaction = tx;
-
-  // If a wallet is available, sign the transaction before submission
-  if ((this as any).wallet) {
-    const wallet = (this as any).wallet;
-
-    // Convert transaction to XDR for wallet signing
-    const txXdr = tx.toXDR();
-
-    // Sign via wallet connector
-    const signedXdr = await wallet.signTransaction(
-      txXdr,
-      this.networkPassphrase
-    );
-
-    // Reconstruct signed transaction from XDR
-    finalTx = TransactionBuilder.fromXDR(
-      signedXdr,
-      this.networkPassphrase
-    );
+  async sendTransaction(tx: Transaction | FeeBumpTransaction): Promise<TransactionSendResult> {
+    this.logger.info("Sending transaction");
+    return this.executeWithErrorHandling(async () => {
+      const result = await this.rpc.sendTransaction(tx);
+      const hash = (result as any).hash ?? (result as any).id ?? "";
+      const status = (result as any).status ?? (result as any).statusText ?? "unknown";
+      this.logger.info(`Transaction submitted: ${hash} (Status: ${status})`);
+      return { hash, status, raw: result };
+    }, "Failed to send transaction");
   }
-
-  // Submit either original or signed transaction
-  const result = await this.rpc.sendTransaction(finalTx);
-  const hash = (result as any).hash ?? (result as any).id ?? "";
-  const status = (result as any).status ?? (result as any).statusText ?? "unknown";
-  return { hash, status, raw: result };
-}
-
 
   /**
    * Retrieves the status of a submitted transaction.
@@ -205,7 +226,11 @@ export class StellarClient {
    * @returns The transaction status response
    */
   async getTransaction(hash: string): Promise<unknown> {
-    return retry(() => this.rpc.getTransaction(hash), this.retryConfig);
+    this.logger.debug(`Fetching transaction status for ${hash}`);
+    return this.executeWithErrorHandling(
+      () => retry(() => this.rpc.getTransaction(hash), this.retryConfig),
+      `Failed to fetch transaction ${hash}`
+    );
   }
 
   /**
@@ -221,20 +246,22 @@ export class StellarClient {
     hash: string,
     params?: { timeoutMs?: number; intervalMs?: number }
   ): Promise<unknown> {
-    const timeoutMs = params?.timeoutMs ?? 30_000;
-    const intervalMs = params?.intervalMs ?? 1_000;
-    const deadline = Date.now() + timeoutMs;
+    return this.executeWithErrorHandling(async () => {
+      const timeoutMs = params?.timeoutMs ?? 30_000;
+      const intervalMs = params?.intervalMs ?? 1_000;
+      const deadline = Date.now() + timeoutMs;
 
-    while (Date.now() < deadline) {
-      const res = await this.getTransaction(hash);
-      const status = (res as any)?.status;
-      if (status && status !== "NOT_FOUND") {
-        return res;
+      while (Date.now() < deadline) {
+        const res = await this.getTransaction(hash);
+        const status = (res as any)?.status;
+        if (status && status !== "NOT_FOUND") {
+          return res;
+        }
+        await new Promise((r) => setTimeout(r, intervalMs));
       }
-      await new Promise((r) => setTimeout(r, intervalMs));
-    }
 
-    throw new Error(`Timed out waiting for transaction ${hash}`);
+      throw new NetworkError(`Timed out waiting for transaction ${hash}`);
+    }, `Failed while polling transaction ${hash}`);
   }
 
   /**
@@ -268,12 +295,7 @@ export class StellarClient {
    * @returns The corresponding network passphrase
    */
   static getDefaultNetworkPassphrase(network: AxionveraNetwork): string {
-    switch (network) {
-      case "testnet":
-        return Networks.TESTNET;
-      case "mainnet":
-        return Networks.PUBLIC;
-    }
+    return getNetworkPassphrase(network);
   }
 
   /**
@@ -301,5 +323,113 @@ export class StellarClient {
       queueTimeout: this.concurrencyConfig.queueTimeout,
       message: 'Stats not available from wrapped client'
     };
+  }
+
+  /**
+   * Get detailed queue status for monitoring
+   */
+  getQueueStatus() {
+    if (!this.concurrencyEnabled) {
+      return {
+        enabled: false,
+        message: 'Concurrency control is not enabled'
+      };
+    }
+
+    // Try to get detailed status from the wrapped client if it has the method
+    if ('getQueueStatus' in this.rpc && typeof this.rpc.getQueueStatus === 'function') {
+      return {
+        enabled: true,
+        ...this.rpc.getQueueStatus()
+      };
+    }
+
+    // Fallback to basic stats
+    return this.getConcurrencyStats();
+  }
+
+  /**
+   * Subscribe to real-time events via WebSocket.
+   * @param filter - Event filter criteria
+   * @param callback - Callback function for received events
+   * @returns Subscription ID that can be used to unsubscribe
+   */
+  async subscribeToEvents(
+    filter: EventFilter,
+    callback: (event: SorobanEvent) => void
+  ): Promise<string> {
+    if (!this.webSocketManager) {
+      throw new NetworkError('WebSocket manager not initialized. Please provide webSocketConfig in constructor.');
+    }
+
+    // Connect WebSocket if not already connected
+    if (!this.webSocketManager.isConnected()) {
+      await this.webSocketManager.connect();
+    }
+
+    return this.webSocketManager.subscribe(filter, callback);
+  }
+
+  /**
+   * Unsubscribe from real-time events.
+   * @param subscriptionId - The subscription ID returned by subscribeToEvents
+   */
+  unsubscribeFromEvents(subscriptionId: string): void {
+    if (this.webSocketManager) {
+      this.webSocketManager.unsubscribe(subscriptionId);
+    }
+  }
+
+  /**
+   * Get WebSocket connection status and statistics.
+   */
+  getWebSocketStatus() {
+    if (!this.webSocketManager) {
+      return {
+        enabled: false,
+        connected: false,
+        subscriptions: 0,
+        message: 'WebSocket manager not initialized'
+      };
+    }
+
+    return {
+      enabled: true,
+      connected: this.webSocketManager.isConnected(),
+      subscriptions: this.webSocketManager.getSubscriptionCount(),
+    };
+  }
+
+  /**
+   * Disconnect WebSocket and cleanup resources.
+   */
+  disconnectWebSocket(): void {
+    if (this.webSocketManager) {
+      this.webSocketManager.disconnect();
+    }
+  }
+
+  /**
+   * Get CloudWatch logging statistics.
+   */
+  getCloudWatchStats() {
+    return this.logger.getCloudWatchStats();
+  }
+
+  /**
+   * Cleanup all async resources including WebSocket and CloudWatch.
+   */
+  async cleanup(): Promise<void> {
+    this.disconnectWebSocket();
+    await this.logger.destroy();
+  }
+
+  private async executeWithErrorHandling<T>(fn: () => Promise<T>, fallbackMessage: string): Promise<T> {
+    try {
+      return await fn();
+    } catch (error: unknown) {
+      this.logger.error(fallbackMessage, error);
+      throw toAxionveraError(error, fallbackMessage);
+    }
   }
 }
