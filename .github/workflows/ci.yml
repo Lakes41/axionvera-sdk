@@ -29,3 +29,7 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm test
+      - name: Build SDK
+        run: npm run build
+      - name: Check Bundle Size
+        run: npm run size
