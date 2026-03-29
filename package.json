@@ -44,13 +44,17 @@
     "lint": "node ./node_modules/eslint/bin/eslint.js src/**/*.ts",
     "test": "jest",
     "docs": "typedoc",
-    "start": "npm run build"
+    "start": "npm run build",
+    "size": "size-limit"
   },
+  "sideEffects": false,
   "dependencies": {
     "@stellar/stellar-sdk": "^14.6.1",
     "axios": "^1.7.9"
   },
   "devDependencies": {
+    "@size-limit/preset-small-lib": "^11.1.6",
+    "size-limit": "^11.1.6",
     "@types/jest": "^29.5.12",
     "@types/node": "^22.13.5",
     "@typescript-eslint/eslint-plugin": "^7.0.0",

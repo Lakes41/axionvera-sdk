@@ -105,6 +105,14 @@ npm run test
 
 The repository includes both unit tests and end-to-end style tests under `tests/`.
 
+### `npm run size`
+
+Checks the production bundle size against the limits defined in `.size-limit.json`.
+
+```bash
+npm run size
+```
+
 ### Recommended pre-PR validation
 
 Before submitting a pull request, run:
@@ -114,6 +122,7 @@ npm run lint
 npm run typecheck
 npm run test
 npm run build
+npm run size
 ```
 
 These are the same validation areas enforced in GitHub Actions.
