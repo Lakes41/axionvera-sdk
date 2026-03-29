@@ -64,6 +64,24 @@ describe("StellarClient Unit Tests", () => {
 
       await expect(client.getHealth()).rejects.toThrow("Failed to fetch network health");
     });
+
+    it("should retry on transient RPC errors", async () => {
+      let attempts = 0;
+      // Simulate a transient error that succeeds on the 3rd attempt
+      overrideHandlers(
+        rest.get("https://soroban-testnet.stellar.org/health", (_req, res, ctx) => {
+          attempts++;
+          if (attempts < 3) {
+            return res(ctx.status(500));
+          }
+          return res(ctx.json({ status: "healthy", version: "20.0.0" }));
+        })
+      );
+
+      const health = await client.getHealth();
+      expect(attempts).toBe(3);
+      expect(health.status).toBe("healthy");
+    });
   });
 
   describe("Authentication and Signing Flow", () => {
